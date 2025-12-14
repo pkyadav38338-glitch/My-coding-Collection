@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D Floating Particle Text</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000; /* unchanged background */
+      overflow: hidden; /* full screen */
+    }
+    canvas {
+      display: block;
+    }
+    input {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px;
+      font-size: 20px;
+      text-align: center;
+      width: 400px;
+      color: #fff;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid #444;
+      border-radius: 6px;
+      outline: none;
+    }
+    input::placeholder { color: #aaa; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <input id="textInput" placeholder="Enter a word (leave empty for sphere)" />
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const textInput = document.getElementById("textInput");
+
+    // Fullscreen canvas
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    const PARTICLE_COUNT = 2500; // increased particle number
+    const particles = [];
+    let glowPhase = 0;
+    let hueShift = 0;
+    let time = 0;
+
+    class Particle {
+      constructor(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.tx = x;
+        this.ty = y;
+        this.tz = z;
+        this.size = 0.7;
+        this.speed = 0.08;
+        this.scatter = false;
+      }
+      update() {
+        if (this.scatter) {
+          this.x += (Math.random() * canvas.width - this.x) * 0.02;
+          this.y += (Math.random() * canvas.height - this.y) * 0.02;
+          this.z += (Math.random() * 500 - this.z) * 0.02;
+        } else {
+          // floating offsets
+          const floatX = Math.sin(time * 0.02 + this.x * 0.01) * 3;
+          const floatY = Math.cos(time * 0.02 + this.y * 0.01) * 3;
+          const floatZ = Math.sin(time * 0.015 + this.z * 0.01) * 3;
+
+          // rotation angles
+          const angleY = time * 0.005;
+          const angleX = time * 0.003;
+          const cosY = Math.cos(angleY), sinY = Math.sin(angleY);
+          const cosX = Math.cos(angleX), sinX = Math.sin(angleX);
+
+          let rx = this.tx * cosY - this.tz * sinY;
+          let rz = this.tx * sinY + this.tz * cosY;
+          let ry = this.ty * cosX - rz * sinX;
+          rz = this.ty * sinX + rz * cosX;
+
+          this.x += (rx + floatX - this.x) * this.speed;
+          this.y += (ry + floatY - this.y) * this.speed;
+          this.z += (rz + floatZ - this.z) * this.speed;
+        }
+      }
+      draw() {
+        const fov = 400;
+        const scale = fov / (fov + this.z);
+        const px = canvas.width / 2 + this.x * scale;
+        const py = canvas.height / 2 + this.y * scale;
+        const size = this.size * scale;
+
+        ctx.fillStyle = "white";
+        const glow = 4 + Math.sin(glowPhase) * 4;
+        const glowColor = `hsl(${hueShift}, 100%, 70%)`;
+        ctx.shadowBlur = glow;
+        ctx.shadowColor = glowColor;
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function createSphereTargets() {
+      const targets = [];
+      const radius = 200;
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const theta = Math.random() * 2 * Math.PI;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const x = radius * Math.sin(phi) * Math.cos(theta);
+        const y = radius * Math.sin(phi) * Math.sin(theta);
+        const z = radius * Math.cos(phi);
+        targets.push({x, y, z});
+      }
+      return targets;
+    }
+
+    function morphToSphere() {
+      const targets = createSphereTargets();
+      particles.forEach((p, i) => {
+        const t = targets[i];
+        p.tx = t.x;
+        p.ty = t.y;
+        p.tz = t.z;
+        p.scatter = false;
+      });
+    }
+
+    function morphToText(word) {
+      particles.forEach(p => p.scatter = true);
+      setTimeout(() => {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tctx = tempCanvas.getContext("2d");
+        tctx.fillStyle = "#fff";
+        tctx.font = "160px Arial";
+        tctx.textAlign = "center";
+        tctx.textBaseline = "middle";
+        tctx.fillText(word, canvas.width / 2, canvas.height / 2);
+
+        const img = tctx.getImageData(0, 0, canvas.width, canvas.height);
+        const pts = [];
+        for (let y = 0; y < canvas.height; y += 6) {
+          for (let x = 0; x < canvas.width; x += 6) {
+            const idx = (y * canvas.width + x) * 4;
+            if (img.data[idx + 3] > 128) {
+              pts.push({x: x - canvas.width/2, y: y - canvas.height/2, z: 0});
+            }
+          }
+        }
+        particles.forEach((p, i) => {
+          if (i < pts.length) {
+            p.tx = pts[i].x;
+            p.ty = pts[i].y;
+            p.tz = pts[i].z;
+          } else {
+            p.tx = (Math.random()-0.5)*canvas.width/2;
+            p.ty = (Math.random()-0.5)*canvas.height/2;
+            p.tz = (Math.random()-0.5)*200;
+          }
+          p.scatter = false;
+        });
+      }, 500);
+    }
+
+    function animate() {
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      glowPhase += 0.05;
+      hueShift = (hueShift + 1) % 360;
+      time += 0.02;
+
+      particles.forEach(p => {
+        p.update();
+        p.draw();
+      });
+      requestAnimationFrame(animate);
+    }
+
+    // Init
+    const sphereTargets = createSphereTargets();
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const t = sphereTargets[i];
+      particles.push(new Particle(t.x, t.y, t.z));
+    }
+    morphToSphere();
+    animate();
+
+    textInput.addEventListener("input", e => {
+      const word = e.target.value.trim().toUpperCase();
+      if (word.length === 0) morphToSphere();
+      else morphToText(word);
+    });
+  </script>
+</body>
+</html>
